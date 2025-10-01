@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+<head><title>Result</title></head>
+<body>
+  <h2>Query #{{ record.id }}</h2>
+  <p>Case Type: {{ record.case_type }}<br/>
+  Case Number: {{ record.case_number }}<br/>
+  Year: {{ record.year }}</p>
+
+  <p><a href="{{ url_for('download_html', record_id=record.id) }}">Download captured HTML</a></p>
+
+  <p>Parsed JSON preview:</p>
+  <pre>{{ record.parsed_json }}</pre>
+
+  <p><a href="{{ url_for('index') }}">New search</a></p>
+</body>
+</html>
