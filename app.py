@@ -12,21 +12,48 @@ init_db()
 OUT_DIR = Path("output")
 OUT_DIR.mkdir(exist_ok=True)
 
+# Court URLs map
+COURT_URLS = {
+    "highcourt": "https://hcservices.ecourts.gov.in/hcservices/main.php",
+    "district": "https://services.ecourts.gov.in/ecourtindia_v6/"
+}
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
         case_type = request.form.get("case_type")
         case_number = request.form.get("case_number")
         year = request.form.get("year")
-        # For MVP: we'll search by hitting ecourts home and capturing content as a first pass
-        # (Later: map case_type -> court-specific URL)
-        # Save initial query
+        court_key = request.form.get("court")
+
+        url = COURT_URLS.get(court_key)
+        if not url:
+            return "Invalid court selected", 400
+
+        # Run scraper
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        html, xhrs = loop.run_until_complete(fetch_page_with_xhr(url))
+        parsed = parse_causelist_simple(html)
+
+        # Save to DB
         session = SessionLocal()
-        record = QueryRecord(case_type=case_type, case_number=case_number, year=year)
-        session.add(record); session.commit()
+        record = QueryRecord(
+            case_type=case_type,
+            case_number=case_number,
+            year=year,
+            court=court_key,
+            raw_response=html,
+            parsed_json=json.dumps(parsed)
+        )
+        session.add(record)
+        session.commit()
         session.refresh(record)
+        record_id = record.id
         session.close()
-        return redirect(url_for("search_result", record_id=record.id))
+
+        return redirect(url_for("search_result", record_id=record_id))
+
     return render_template("index.html")
 
 @app.route("/result/<int:record_id>")
@@ -34,6 +61,8 @@ def search_result(record_id):
     session = SessionLocal()
     record = session.query(QueryRecord).get(record_id)
     session.close()
+    if not record:
+        return "Record not found", 404
     return render_template("result.html", record=record)
 
 @app.route("/api/fetch_page", methods=["POST"])
@@ -42,7 +71,7 @@ def api_fetch_page():
     data = request.json
     url = data.get("url")
     if not url:
-        return jsonify({"error":"missing url"}), 400
+        return jsonify({"error": "missing url"}), 400
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     html, xhrs = loop.run_until_complete(fetch_page_with_xhr(url))
@@ -50,7 +79,8 @@ def api_fetch_page():
     # save to DB
     session = SessionLocal()
     rec = QueryRecord(case_type="", case_number="", year="", raw_response=html, parsed_json=json.dumps(parsed))
-    session.add(rec); session.commit()
+    session.add(rec)
+    session.commit()
     rid = rec.id
     session.close()
     return jsonify({"record_id": rid, "xhrs": xhrs, "parsed_preview": parsed}), 200
@@ -69,17 +99,21 @@ def download_html(record_id):
 # quick search for case in DB (by partial match in parsed_json/text) for tomorrow
 @app.route("/api/search_case", methods=["GET"])
 def api_search_case():
-    q = request.args.get("q","").strip()
+    q = request.args.get("q", "").strip()
     if not q:
-        return jsonify({"error":"missing query"}), 400
+        return jsonify({"error": "missing query"}), 400
     session = SessionLocal()
     tomorrow = (date.today() + timedelta(days=1))
-    # naive: search parsed_json text
     results = []
     for rec in session.query(QueryRecord).all():
         p = rec.parsed_json or ""
         if q.lower() in p.lower():
-            results.append({"id": rec.id, "case_type": rec.case_type, "case_number": rec.case_number})
+            results.append({
+                "id": rec.id,
+                "case_type": rec.case_type,
+                "case_number": rec.case_number,
+                "court": rec.court
+            })
     session.close()
     return jsonify({"matches": results})
 

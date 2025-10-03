@@ -4,6 +4,13 @@
 <body>
   <h1>Court Fetcher — Enter case</h1>
   <form method="POST">
+     <label>Court:
+     <select name="court" required>
+     <option value="highcourt">High Court</option>
+     <option value="district">District Court</option>
+  </select>
+  </label><br/>
+
     <label>Case Type: <input name="case_type" required></label><br/>
     <label>Case Number: <input name="case_number" required></label><br/>
     <label>Year: <input name="year" required></label><br/>
